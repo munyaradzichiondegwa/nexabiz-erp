@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --navy:       #1A2B4A;
+  --teal:       #2DB89E;
+  --surface:    #F0F4F8;
+  --border:     #D9E2EC;
+  --text-muted: #637693;
+}
+
+* { box-sizing: border-box; }
+body { @apply bg-surface text-navy font-sans; }
