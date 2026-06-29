@@ -1,0 +1,30 @@
+# Istio mTLS policy — all service-to-service traffic encrypted
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: nexabiz-mtls
+  namespace: nexabiz-production
+spec:
+  mtls:
+    mode: STRICT
+---
+# Deny all traffic by default (zero-trust)
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-all
+  namespace: nexabiz-production
+spec: {}
+---
+# Allow Kong → all services
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-kong-ingress
+  namespace: nexabiz-production
+spec:
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals: ["cluster.local/ns/nexabiz-production/sa/kong"]

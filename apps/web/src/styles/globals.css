@@ -2,13 +2,146 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── NexaBiz Brand Tokens (from GitHub prototype) ── */
 :root {
   --navy:       #1A2B4A;
+  --navy-l:     #223559;
+  --navy-d:     #111D33;
   --teal:       #2DB89E;
+  --teal-l:     #3ECDB2;
+  --teal-d:     #1E9E87;
   --surface:    #F0F4F8;
+  --white:      #ffffff;
   --border:     #D9E2EC;
-  --text-muted: #637693;
+  --text:       #1A2B4A;
+  --muted:      #637693;
+  --danger:     #E05252;
+  --warning:    #F5A623;
+  --ok:         #2DB89E;
+  --sidebar-w:  220px;
+  --header-h:   60px;
+  --background: 0 0% 100%;
+  --foreground:  222 84% 15%;
+  --radius:     0.5rem;
 }
 
 * { box-sizing: border-box; }
-body { @apply bg-surface text-navy font-sans; }
+
+body {
+  @apply bg-surface text-navy font-sans antialiased;
+  font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+html, body, #root { height: 100%; }
+
+/* ── Reusable component classes ── */
+@layer components {
+  /* Page header */
+  .ph { @apply flex items-start justify-between mb-6; }
+  .ph h1 { @apply text-2xl font-bold text-navy; }
+  .ph .sub { @apply text-xs text-muted-foreground mt-1; }
+  .ph .actions { @apply flex items-center gap-2; }
+
+  /* KPI cards */
+  .kpi { @apply rounded-xl p-5 text-white cursor-pointer transition-all duration-150 hover:-translate-y-0.5 hover:shadow-lg; }
+  .kpi .k-label { @apply text-xs uppercase tracking-wide opacity-80 mb-1; }
+  .kpi .k-val   { @apply text-2xl font-bold mb-1; }
+  .kpi .k-sub   { @apply text-xs opacity-75; }
+
+  /* Card */
+  .card { @apply bg-white border border-border rounded-xl p-5; }
+  .card h3 { @apply text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3; }
+
+  /* Badge */
+  .badge { @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold; }
+  .b-ok   { @apply bg-green-100 text-green-800; }
+  .b-warn { @apply bg-yellow-100 text-yellow-800; }
+  .b-bad  { @apply bg-red-100 text-red-800; }
+  .b-blue { @apply bg-blue-100 text-blue-800; }
+
+  /* Buttons */
+  .btn { @apply inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold cursor-pointer border-none transition-all duration-150 active:scale-95; }
+  .btn-primary { @apply bg-teal text-white hover:bg-teal-dark; }
+  .btn-navy    { @apply bg-navy text-white hover:bg-navy-light; }
+  .btn-ghost   { @apply bg-transparent border border-border text-muted-foreground hover:bg-surface hover:text-navy; }
+  .btn-danger  { @apply bg-red-100 text-red-800 hover:bg-red-200; }
+  .btn-sm      { @apply px-3 py-1 text-xs; }
+
+  /* Tabs */
+  .tabs { @apply flex border-b-2 border-border mb-5; }
+  .tab  { @apply px-5 py-2 text-sm font-semibold text-muted-foreground cursor-pointer border-b-2 border-transparent -mb-0.5 transition-colors bg-transparent border-t-0 border-l-0 border-r-0 hover:text-navy; }
+  .tab.active { @apply text-teal border-b-teal; }
+
+  /* Form */
+  .form-group { @apply mb-4; }
+  .form-group label { @apply block text-sm font-semibold mb-1 text-navy; }
+  .form-group input,
+  .form-group select,
+  .form-group textarea {
+    @apply w-full border border-border rounded-lg px-3 py-2 text-sm outline-none transition-colors;
+    &:focus { @apply border-teal; }
+  }
+  .form-row { @apply grid grid-cols-2 gap-4; }
+
+  /* Table */
+  .data-table { @apply w-full border-collapse text-sm; }
+  .data-table th { @apply bg-navy text-white px-3 py-2 text-left text-xs font-medium; }
+  .data-table td { @apply px-3 py-2 border-b border-border; }
+  .data-table tr:last-child td { @apply border-b-0; }
+  .data-table tr:hover td { @apply bg-surface; }
+
+  /* AI insight bar */
+  .ai-bar { @apply bg-accent border border-teal/30 rounded-lg px-4 py-3 text-sm flex items-center gap-3 mt-3; }
+
+  /* Status toggle (Settings) */
+  .toggle { @apply relative inline-flex w-11 h-6 cursor-pointer; }
+  .toggle input { @apply sr-only; }
+  .slider { @apply absolute inset-0 bg-border rounded-full transition-colors duration-200; }
+  .slider::before { content: ""; @apply absolute h-5 w-5 left-0.5 bottom-0.5 bg-white rounded-full transition-transform duration-200 shadow-sm; }
+  input:checked + .slider { @apply bg-teal; }
+  input:checked + .slider::before { @apply translate-x-5; }
+  input:disabled + .slider { @apply opacity-50 cursor-not-allowed; }
+
+  /* Modal */
+  .overlay { @apply fixed inset-0 bg-black/45 z-[400] hidden items-center justify-center; }
+  .overlay.open { @apply flex; }
+  .modal { @apply bg-white rounded-2xl w-[480px] max-w-[95vw] max-h-[90vh] flex flex-col overflow-hidden shadow-2xl; }
+  .modal.wide { @apply w-[640px]; }
+  .modal-head { @apply bg-navy text-white px-6 py-4 flex justify-between items-center; }
+  .modal-head h2 { @apply text-base font-semibold; }
+  .modal-close { @apply bg-transparent border-none text-white text-xl cursor-pointer opacity-80 hover:opacity-100 leading-none; }
+  .modal-body { @apply p-6 overflow-y-auto flex-1; }
+  .modal-foot { @apply px-6 py-4 border-t border-border flex gap-2 justify-end; }
+
+  /* Toast */
+  .toast-item { @apply bg-navy text-white px-5 py-3 rounded-xl text-sm flex items-center gap-3 shadow-xl max-w-xs; }
+  .toast-item.success { @apply bg-green-800; }
+  .toast-item.error   { @apply bg-red-800; }
+  .toast-item.warning { @apply bg-yellow-800; }
+
+  /* Progress */
+  .progress { @apply h-1.5 bg-border rounded-full overflow-hidden; }
+  .progress-bar { @apply h-full bg-teal rounded-full transition-all duration-400; }
+
+  /* POS specific */
+  .prod-card { @apply bg-white border border-border rounded-xl p-4 cursor-pointer text-center transition-all duration-150 hover:border-teal hover:-translate-y-0.5 hover:shadow-md; }
+  .prod-card:active { @apply scale-95; }
+  .cart-panel { @apply bg-white border border-border rounded-xl flex flex-col overflow-hidden; }
+  .cart-head  { @apply bg-navy text-white px-5 py-3 font-semibold; }
+  .cart-item  { @apply flex items-center gap-2 py-2 border-b border-border text-sm last:border-b-0; }
+  .cart-foot  { @apply p-4 border-t border-border; }
+  .cart-total { @apply flex justify-between font-bold text-lg mb-3; }
+}
+
+/* Print styles */
+@media print {
+  .no-print { display: none !important; }
+  .sidebar, header { display: none !important; }
+  main { padding: 0 !important; margin: 0 !important; }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--surface); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }

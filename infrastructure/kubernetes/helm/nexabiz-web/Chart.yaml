@@ -1,0 +1,13 @@
+apiVersion: v2
+name: nexabiz
+description: NexaBiz Enterprise ERP — Full Stack Helm Chart
+type: application
+version: 3.1.0
+appVersion: "3.1.0"
+keywords:
+  - erp
+  - enterprise
+  - nexabiz
+maintainers:
+  - name: NevTech Consultancy
+    url: https://nev-tech-technologies.netlify.app

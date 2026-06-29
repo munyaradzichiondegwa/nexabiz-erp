@@ -1,0 +1,81 @@
+# NexaBiz Prometheus scrape config
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  external_labels:
+    env: production
+    app: nexabiz
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files:
+  - "alerts/*.yml"
+
+scrape_configs:
+  # Node.js services
+  - job_name: "nexabiz-node-services"
+    static_configs:
+      - targets:
+          - "auth-service:3001"
+          - "user-service:3002"
+          - "inventory-service:3004"
+          - "pos-service:3005"
+          - "banking-service:3006"
+          - "ar-service:3007"
+          - "ap-service:3008"
+          - "reporting-service:3009"
+          - "procurement-service:3010"
+          - "crm-service:3011"
+          - "budgeting-service:3012"
+          - "sales-order-service:3013"
+          - "manufacturing-service:3014"
+          - "project-service:3015"
+          - "workflow-service:3016"
+          - "service-mgmt-service:3017"
+          - "notification-service:3018"
+          - "module-registry-service:3019"
+          - "asset-service:3020"
+          - "gl-integration-service:3021"
+    metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: "([^:]+).*"
+        target_label: service
+        replacement: "$1"
+
+  # Spring Boot services (Actuator)
+  - job_name: "nexabiz-spring-services"
+    static_configs:
+      - targets:
+          - "gl-service:8080"
+          - "hr-service:8080"
+    metrics_path: /actuator/prometheus
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: "([^:]+).*"
+        target_label: service
+        replacement: "$1"
+
+  # AI service
+  - job_name: "nexabiz-ai-service"
+    static_configs:
+      - targets: ["ai-service:8000"]
+    metrics_path: /metrics
+
+  # Infrastructure
+  - job_name: "postgres"
+    static_configs:
+      - targets: ["postgres:5432"]
+    metrics_path: /metrics
+
+  - job_name: "kafka"
+    static_configs:
+      - targets: ["kafka:9092"]
+
+  - job_name: "kong"
+    static_configs:
+      - targets: ["kong:8001"]
+    metrics_path: /metrics

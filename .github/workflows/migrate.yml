@@ -1,0 +1,36 @@
+name: Run DB Migrations
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: "staging"
+        type: choice
+        options: [staging, production]
+
+jobs:
+  migrate:
+    name: Run Migrations (${{ github.event.inputs.environment }})
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: npm ci
+      - name: Run all migrations
+        env:
+          AUTH_DB_URL:        ${{ secrets.AUTH_DB_URL }}
+          ACCOUNTING_DB_URL:  ${{ secrets.ACCOUNTING_DB_URL }}
+          SALES_DB_URL:       ${{ secrets.SALES_DB_URL }}
+          INVENTORY_DB_URL:   ${{ secrets.INVENTORY_DB_URL }}
+          HR_DB_URL:          ${{ secrets.HR_DB_URL }}
+          CRM_DB_URL:         ${{ secrets.CRM_DB_URL }}
+          BANKING_DB_URL:     ${{ secrets.BANKING_DB_URL }}
+          PROCUREMENT_DB_URL: ${{ secrets.PROCUREMENT_DB_URL }}
+          CONFIG_DB_URL:      ${{ secrets.CONFIG_DB_URL }}
+        run: |
+          echo "Running migrations for ${{ github.event.inputs.environment }}"
+          node scripts/migrate.js

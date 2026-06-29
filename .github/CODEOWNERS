@@ -1,0 +1,14 @@
+# NexaBiz CODEOWNERS
+# These owners are automatically requested for review on PRs
+
+# Global
+* @munyaradzichiondegwa
+
+# GL / Accounting core — extra scrutiny
+/services/gl-service/                    @munyaradzichiondegwa
+/services/gl-integration-service/        @munyaradzichiondegwa
+/packages/db-migrations/accounting/      @munyaradzichiondegwa
+
+# Infrastructure
+/infrastructure/                         @munyaradzichiondegwa
+/.github/workflows/                      @munyaradzichiondegwa

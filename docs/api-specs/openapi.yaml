@@ -1,0 +1,254 @@
+openapi: "3.1.0"
+info:
+  title: NexaBiz ERP API
+  version: "3.1.0"
+  description: |
+    NexaBiz Enterprise Resource Planning System API.
+    All endpoints require Bearer JWT authentication (except /auth/login).
+    Include X-Tenant-ID header for all authenticated requests.
+  contact:
+    name: NevTech Consultancy
+    url: https://nev-tech-technologies.netlify.app
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://app.nexabiz.com/api/v1
+    description: Production
+  - url: http://localhost:8000/api/v1
+    description: Local development (via Kong)
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  
+  parameters:
+    TenantId:
+      name: X-Tenant-ID
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CorrelationId:
+      name: X-Correlation-ID
+      in: header
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        statusCode: { type: integer }
+        error: { type: string }
+        message: { type: string }
+        correlationId: { type: string }
+        timestamp: { type: string, format: date-time }
+
+paths:
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: Login with email and password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+                mfaCode: { type: string, pattern: "^[0-9]{6}$" }
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken: { type: string }
+                  refreshToken: { type: string }
+                  user:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      email: { type: string }
+                      firstName: { type: string }
+                      lastName: { type: string }
+                      tenantId: { type: string, format: uuid }
+        "401": { description: Invalid credentials }
+
+  /pos/products:
+    get:
+      tags: [POS]
+      summary: List POS products with stock levels
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+        - name: search
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Product list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string }
+                    sku: { type: string }
+                    name: { type: string }
+                    price: { type: number }
+                    stock: { type: integer }
+                    icon: { type: string }
+                    category: { type: string }
+
+  /pos/checkout:
+    post:
+      tags: [POS]
+      summary: Process a sale (fires GL posting event automatically)
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items, paymentMethod]
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      productId: { type: string }
+                      qty: { type: integer, minimum: 1 }
+                paymentMethod:
+                  type: string
+                  enum: [cash, card, mobile, bank_transfer, credit, split]
+                discount: { type: number, minimum: 0, maximum: 100 }
+      responses:
+        "200":
+          description: Sale processed — GL entry auto-posted via Kafka
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  receiptId: { type: string }
+                  orderId: { type: string }
+                  total: { type: number }
+                  orderNumber: { type: string }
+
+  /accounting/gl:
+    get:
+      tags: [Accounting]
+      summary: General Ledger entries
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+        - name: page
+          in: query
+          schema: { type: integer, default: 0 }
+      responses:
+        "200":
+          description: GL entries
+
+  /accounting/journal:
+    post:
+      tags: [Accounting]
+      summary: Post a manual journal entry (enforces double-entry balance)
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [date, description, lines]
+              properties:
+                ref: { type: string }
+                date: { type: string, format: date }
+                description: { type: string }
+                lines:
+                  type: array
+                  minItems: 2
+                  items:
+                    type: object
+                    properties:
+                      accountId: { type: string }
+                      debit: { type: number, minimum: 0 }
+                      credit: { type: number, minimum: 0 }
+      responses:
+        "201": { description: Journal entry posted }
+        "400": { description: Unbalanced entry (DR ≠ CR) }
+
+  /modules/status:
+    get:
+      tags: [Module Registry]
+      summary: Get all module statuses for tenant
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+      responses:
+        "200":
+          description: Module list with active status
+
+  /modules/{code}/toggle:
+    post:
+      tags: [Module Registry]
+      summary: Activate or deactivate a module (core modules cannot be toggled)
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+        - name: code
+          in: path
+          required: true
+          schema: { type: string, example: "MOD-09" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                activate: { type: boolean }
+      responses:
+        "200": { description: Module toggled — WebSocket broadcast sent }
+        "400": { description: Core module cannot be toggled }
+
+  /ai/nlq:
+    post:
+      tags: [AI]
+      summary: Natural Language Query — ask questions about business data
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                question: { type: string, example: "Which products have the highest margin this month?" }
+      responses:
+        "200":
+          description: AI-generated answer
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  answer: { type: string }
+                  confidence: { type: number }

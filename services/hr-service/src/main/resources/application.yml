@@ -1,0 +1,57 @@
+spring:
+  application:
+    name: hr-service
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/nexabiz_hr}
+    username: ${SPRING_DATASOURCE_USERNAME:nexabiz}
+    password: ${SPRING_DATASOURCE_PASSWORD:nexabiz}
+    hikari:
+      maximum-pool-size: 20
+      connection-timeout: 5000
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: false
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.xml
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      group-id: hr-service-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+nexabiz:
+  jwt:
+    secret: ${JWT_SECRET:dev-secret-CHANGE-ME}
+  kafka:
+    topics:
+      hr-events: nexabiz.hr.events
+      gl-requests: nexabiz.gl.posting.requests
+
+logging:
+  level:
+    com.nexabiz: INFO
+    org.springframework: WARN

@@ -1,0 +1,316 @@
+_format_version: "3.0"
+_transform: true
+
+# NexaBiz — Kong API Gateway (DB-less declarative config)
+# Routes all /api/v1/* traffic to the correct microservice
+# JWT auth is validated at the gateway — services trust X-Tenant-ID header
+
+services:
+
+  # Auth Service (public — no JWT plugin)
+  - name: auth-service
+    url: http://auth-service:3001
+    routes:
+      - name: auth-public
+        paths: ["/api/v1/auth"]
+        methods: ["GET","POST","PUT","DELETE","OPTIONS"]
+        strip_path: false
+
+  # User Service
+  - name: user-service
+    url: http://user-service:3002
+    plugins:
+      - name: jwt
+        config:
+          secret_is_base64: false
+          key_claim_name: sub
+          claims_to_verify: ["exp"]
+      - name: request-transformer
+        config:
+          add:
+            headers: ["X-Gateway: kong"]
+    routes:
+      - name: users-api
+        paths: ["/api/v1/users"]
+        strip_path: false
+
+  # GL Service (Spring Boot)
+  - name: gl-service
+    url: http://gl-service:8080
+    plugins:
+      - name: jwt
+        config:
+          claims_to_verify: ["exp"]
+      - name: rate-limiting
+        config:
+          minute: 1000
+          policy: local
+    routes:
+      - name: accounting-api
+        paths: ["/api/v1/accounting", "/api/v1/gl"]
+        strip_path: false
+
+  # GL Integration Service (internal, no public route needed)
+  - name: gl-integration-service
+    url: http://gl-integration-service:3021
+    routes:
+      - name: gl-integration-health
+        paths: ["/internal/gl"]
+        strip_path: false
+
+  # Inventory Service
+  - name: inventory-service
+    url: http://inventory-service:3004
+    plugins:
+      - name: jwt
+        config:
+          claims_to_verify: ["exp"]
+    routes:
+      - name: inventory-api
+        paths: ["/api/v1/inventory"]
+        strip_path: false
+
+  # POS Service
+  - name: pos-service
+    url: http://pos-service:3005
+    plugins:
+      - name: jwt
+        config:
+          claims_to_verify: ["exp"]
+    routes:
+      - name: pos-api
+        paths: ["/api/v1/pos"]
+        strip_path: false
+
+  # Banking Service
+  - name: banking-service
+    url: http://banking-service:3006
+    plugins:
+      - name: jwt
+        config:
+          claims_to_verify: ["exp"]
+    routes:
+      - name: banking-api
+        paths: ["/api/v1/banking"]
+        strip_path: false
+
+  # AR Service
+  - name: ar-service
+    url: http://ar-service:3007
+    plugins:
+      - name: jwt
+        config:
+          claims_to_verify: ["exp"]
+    routes:
+      - name: ar-api
+        paths: ["/api/v1/accounting/ar"]
+        strip_path: false
+
+  # AP Service
+  - name: ap-service
+    url: http://ap-service:3008
+    plugins:
+      - name: jwt
+        config:
+          claims_to_verify: ["exp"]
+    routes:
+      - name: ap-api
+        paths: ["/api/v1/accounting/ap"]
+        strip_path: false
+
+  # Reporting Service (also serves dashboard KPIs)
+  - name: reporting-service
+    url: http://reporting-service:3009
+    plugins:
+      - name: jwt
+        config:
+          claims_to_verify: ["exp"]
+      - name: response-caching
+        config:
+          content_type: ["application/json"]
+          cache_ttl: 30
+    routes:
+      - name: reporting-api
+        paths: ["/api/v1/reporting", "/api/v1/dashboard"]
+        strip_path: false
+
+  # Procurement Service
+  - name: procurement-service
+    url: http://procurement-service:3010
+    plugins:
+      - name: jwt
+        config:
+          claims_to_verify: ["exp"]
+    routes:
+      - name: procurement-api
+        paths: ["/api/v1/procurement"]
+        strip_path: false
+
+  # CRM Service
+  - name: crm-service
+    url: http://crm-service:3011
+    plugins:
+      - name: jwt
+        config:
+          claims_to_verify: ["exp"]
+    routes:
+      - name: crm-api
+        paths: ["/api/v1/crm"]
+        strip_path: false
+
+  # HR Service (Spring Boot)
+  - name: hr-service
+    url: http://hr-service:8080
+    plugins:
+      - name: jwt
+        config:
+          claims_to_verify: ["exp"]
+    routes:
+      - name: hr-api
+        paths: ["/api/v1/hr"]
+        strip_path: false
+
+  # Budgeting Service
+  - name: budgeting-service
+    url: http://budgeting-service:3012
+    plugins:
+      - name: jwt
+        config:
+          claims_to_verify: ["exp"]
+    routes:
+      - name: budgeting-api
+        paths: ["/api/v1/budgeting"]
+        strip_path: false
+
+  # Sales Order Service
+  - name: sales-order-service
+    url: http://sales-order-service:3013
+    plugins:
+      - name: jwt
+        config:
+          claims_to_verify: ["exp"]
+    routes:
+      - name: sales-orders-api
+        paths: ["/api/v1/sales-orders"]
+        strip_path: false
+
+  # Manufacturing Service
+  - name: manufacturing-service
+    url: http://manufacturing-service:3014
+    plugins:
+      - name: jwt
+        config:
+          claims_to_verify: ["exp"]
+    routes:
+      - name: manufacturing-api
+        paths: ["/api/v1/manufacturing"]
+        strip_path: false
+
+  # Project Service
+  - name: project-service
+    url: http://project-service:3015
+    plugins:
+      - name: jwt
+        config:
+          claims_to_verify: ["exp"]
+    routes:
+      - name: projects-api
+        paths: ["/api/v1/projects"]
+        strip_path: false
+
+  # Workflow Service
+  - name: workflow-service
+    url: http://workflow-service:3016
+    plugins:
+      - name: jwt
+        config:
+          claims_to_verify: ["exp"]
+    routes:
+      - name: workflows-api
+        paths: ["/api/v1/workflows"]
+        strip_path: false
+
+  # Service Management Service
+  - name: service-mgmt-service
+    url: http://service-mgmt-service:3017
+    plugins:
+      - name: jwt
+        config:
+          claims_to_verify: ["exp"]
+    routes:
+      - name: service-mgmt-api
+        paths: ["/api/v1/service"]
+        strip_path: false
+
+  # Notification Service
+  - name: notification-service
+    url: http://notification-service:3018
+    plugins:
+      - name: jwt
+        config:
+          claims_to_verify: ["exp"]
+    routes:
+      - name: notifications-api
+        paths: ["/api/v1/notifications"]
+        strip_path: false
+
+  # Module Registry Service
+  - name: module-registry-service
+    url: http://module-registry-service:3019
+    plugins:
+      - name: jwt
+        config:
+          claims_to_verify: ["exp"]
+    routes:
+      - name: modules-api
+        paths: ["/api/v1/modules"]
+        strip_path: false
+
+  # Asset Service
+  - name: asset-service
+    url: http://asset-service:3020
+    plugins:
+      - name: jwt
+        config:
+          claims_to_verify: ["exp"]
+    routes:
+      - name: assets-api
+        paths: ["/api/v1/assets"]
+        strip_path: false
+
+  # AI Service (Python/FastAPI)
+  - name: ai-service
+    url: http://ai-service:8000
+    plugins:
+      - name: jwt
+        config:
+          claims_to_verify: ["exp"]
+      - name: rate-limiting
+        config:
+          minute: 60
+          policy: local
+    routes:
+      - name: ai-api
+        paths: ["/api/v1/ai"]
+        strip_path: false
+
+# Global plugins
+plugins:
+  - name: correlation-id
+    config:
+      header_name: X-Correlation-ID
+      generator: uuid#counter
+      echo_downstream: true
+  - name: response-transformer
+    config:
+      add:
+        headers:
+          - "X-Powered-By: NexaBiz"
+          - "X-Version: 3.1.0"
+
+# JWT Consumer (shared secret for all services)
+consumers:
+  - username: nexabiz-web
+    jwt_secrets:
+      - algorithm: HS256
+        secret: "REPLACE_WITH_JWT_SECRET_FROM_ENV"

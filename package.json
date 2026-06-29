@@ -2,20 +2,38 @@
   "name": "nexabiz",
   "version": "3.1.0",
   "private": true,
-  "description": "NexaBiz – Enterprise Business Management System",
-  "workspaces": ["apps/*", "packages/*", "services/*"],
+  "description": "NexaBiz Enterprise Business Management System - Monorepo",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/*"
+  ],
   "scripts": {
-    "dev":   "turbo run dev",
+    "dev": "turbo run dev",
     "build": "turbo run build",
-    "test":  "turbo run test",
-    "lint":  "turbo run lint",
-    "clean": "turbo run clean && rimraf node_modules"
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "db:migrate": "bash scripts/migrate.sh",
+    "db:seed": "bash scripts/seed.sh",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:build": "docker-compose build",
+    "setup": "./scripts/setup-dev.sh",
+    "seed": "node scripts/seed.js",
+    "migrate": "node scripts/migrate.js",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\" --ignore-path .gitignore",
+    "format:check": "prettier --check \"**/*.{ts,tsx,json,md}\" --ignore-path .gitignore"
   },
   "devDependencies": {
-    "turbo":   "^1.13.0",
-    "rimraf":  "^5.0.0",
-    "prettier":"^3.2.0",
-    "eslint":  "^8.57.0"
+    "turbo": "^1.13.4",
+    "typescript": "^5.4.5",
+    "@types/node": "^20.14.0",
+    "eslint": "^8.57.0",
+    "prettier": "^3.3.2"
   },
-  "engines": { "node": ">=20.0.0", "npm": ">=10.0.0" }
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  }
 }

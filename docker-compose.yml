@@ -1,0 +1,673 @@
+# NexaBiz — Full Development Stack
+# Run: docker-compose up -d
+# All 23 microservices + all infrastructure components
+
+version: '3.9'
+
+x-common-env: &common-env
+  NODE_ENV: development
+  KAFKA_BROKERS: kafka:9092
+  REDIS_URL: redis://redis:6379
+
+networks:
+  nexabiz-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  mongo-data:
+  redis-data:
+  kafka-data:
+  zookeeper-data:
+  clickhouse-data:
+  elasticsearch-data:
+  minio-data:
+  vault-data:
+
+services:
+  # ─── Infrastructure ───────────────────────────────────────────
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: nexabiz-postgres
+    environment:
+      POSTGRES_USER: nexabiz
+      POSTGRES_PASSWORD: nexabiz
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - nexabiz-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexabiz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongodb:
+    image: mongo:7
+    container_name: nexabiz-mongo
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: nexabiz
+      MONGO_INITDB_ROOT_PASSWORD: nexabiz
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      - "27017:27017"
+    networks:
+      - nexabiz-net
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: nexabiz-redis
+    command: redis-server --requirepass nexabiz
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - nexabiz-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "nexabiz", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: nexabiz-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper
+    networks:
+      - nexabiz-net
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: nexabiz-kafka
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    ports:
+      - "29092:29092"
+    networks:
+      - nexabiz-net
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "kafka:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    container_name: nexabiz-clickhouse
+    environment:
+      CLICKHOUSE_USER: nexabiz
+      CLICKHOUSE_PASSWORD: nexabiz
+      CLICKHOUSE_DB: nexabiz_analytics
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    networks:
+      - nexabiz-net
+
+  elasticsearch:
+    image: elasticsearch:8.13.4
+    container_name: nexabiz-elasticsearch
+    environment:
+      discovery.type: single-node
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+      xpack.security.enabled: 'false'
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    networks:
+      - nexabiz-net
+
+  minio:
+    image: minio/minio:latest
+    container_name: nexabiz-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: nexabiz
+      MINIO_ROOT_PASSWORD: nexabiz123
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9010:9000"
+      - "9011:9001"
+    networks:
+      - nexabiz-net
+
+  vault:
+    image: hashicorp/vault:1.17
+    container_name: nexabiz-vault
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: nexabiz-vault-token
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    ports:
+      - "8200:8200"
+    networks:
+      - nexabiz-net
+
+  # ─── API Gateway ──────────────────────────────────────────────
+
+  kong:
+    image: kong:3.7-ubuntu
+    container_name: nexabiz-kong
+    environment:
+      KONG_DATABASE: 'off'
+      KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+    volumes:
+      - ./infrastructure/kong/kong.yml:/etc/kong/kong.yml
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+    networks:
+      - nexabiz-net
+    depends_on:
+      - auth-service
+      - gl-service
+
+  # ─── Node.js Microservices ─────────────────────────────────────
+
+  auth-service:
+    build:
+      context: ./services/auth-service
+      dockerfile: Dockerfile
+    container_name: nexabiz-auth
+    environment:
+      <<: *common-env
+      PORT: 3001
+      AUTH_DB_URL: postgresql://nexabiz:nexabiz@postgres:5432/nexabiz_auth
+      JWT_SECRET: dev-secret-change-in-prod
+      JWT_REFRESH_SECRET: dev-refresh-change-in-prod
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: nexabiz-vault-token
+    ports:
+      - "3001:3001"
+    networks:
+      - nexabiz-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  user-service:
+    build:
+      context: ./services/user-service
+      dockerfile: Dockerfile
+    container_name: nexabiz-users
+    environment:
+      <<: *common-env
+      PORT: 3002
+      USER_DB_URL: postgresql://nexabiz:nexabiz@postgres:5432/nexabiz_auth
+    ports:
+      - "3002:3002"
+    networks:
+      - nexabiz-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  inventory-service:
+    build:
+      context: ./services/inventory-service
+      dockerfile: Dockerfile
+    container_name: nexabiz-inventory
+    environment:
+      <<: *common-env
+      PORT: 3004
+      INVENTORY_DB_URL: postgresql://nexabiz:nexabiz@postgres:5432/nexabiz_inventory
+    ports:
+      - "3004:3004"
+    networks:
+      - nexabiz-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  pos-service:
+    build:
+      context: ./services/pos-service
+      dockerfile: Dockerfile
+    container_name: nexabiz-pos
+    environment:
+      <<: *common-env
+      PORT: 3005
+      SALES_DB_URL: postgresql://nexabiz:nexabiz@postgres:5432/nexabiz_sales
+    ports:
+      - "3005:3005"
+    networks:
+      - nexabiz-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  banking-service:
+    build:
+      context: ./services/banking-service
+      dockerfile: Dockerfile
+    container_name: nexabiz-banking
+    environment:
+      <<: *common-env
+      PORT: 3006
+      BANKING_DB_URL: postgresql://nexabiz:nexabiz@postgres:5432/nexabiz_banking
+    ports:
+      - "3006:3006"
+    networks:
+      - nexabiz-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  ar-service:
+    build:
+      context: ./services/ar-service
+      dockerfile: Dockerfile
+    container_name: nexabiz-ar
+    environment:
+      <<: *common-env
+      PORT: 3007
+      ACCOUNTING_DB_URL: postgresql://nexabiz:nexabiz@postgres:5432/nexabiz_accounting
+    ports:
+      - "3007:3007"
+    networks:
+      - nexabiz-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ap-service:
+    build:
+      context: ./services/ap-service
+      dockerfile: Dockerfile
+    container_name: nexabiz-ap
+    environment:
+      <<: *common-env
+      PORT: 3008
+      ACCOUNTING_DB_URL: postgresql://nexabiz:nexabiz@postgres:5432/nexabiz_accounting
+    ports:
+      - "3008:3008"
+    networks:
+      - nexabiz-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  reporting-service:
+    build:
+      context: ./services/reporting-service
+      dockerfile: Dockerfile
+    container_name: nexabiz-reporting
+    environment:
+      <<: *common-env
+      PORT: 3009
+      CLICKHOUSE_URL: http://clickhouse:8123
+      ACCOUNTING_DB_URL: postgresql://nexabiz:nexabiz@postgres:5432/nexabiz_accounting
+    ports:
+      - "3009:3009"
+    networks:
+      - nexabiz-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  procurement-service:
+    build:
+      context: ./services/procurement-service
+      dockerfile: Dockerfile
+    container_name: nexabiz-procurement
+    environment:
+      <<: *common-env
+      PORT: 3010
+      PROCUREMENT_DB_URL: postgresql://nexabiz:nexabiz@postgres:5432/nexabiz_procurement
+    ports:
+      - "3010:3010"
+    networks:
+      - nexabiz-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  crm-service:
+    build:
+      context: ./services/crm-service
+      dockerfile: Dockerfile
+    container_name: nexabiz-crm
+    environment:
+      <<: *common-env
+      PORT: 3011
+      CRM_DB_URL: postgresql://nexabiz:nexabiz@postgres:5432/nexabiz_crm
+    ports:
+      - "3011:3011"
+    networks:
+      - nexabiz-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  budgeting-service:
+    build:
+      context: ./services/budgeting-service
+      dockerfile: Dockerfile
+    container_name: nexabiz-budgeting
+    environment:
+      <<: *common-env
+      PORT: 3012
+      ACCOUNTING_DB_URL: postgresql://nexabiz:nexabiz@postgres:5432/nexabiz_accounting
+    ports:
+      - "3012:3012"
+    networks:
+      - nexabiz-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  sales-order-service:
+    build:
+      context: ./services/sales-order-service
+      dockerfile: Dockerfile
+    container_name: nexabiz-sales-orders
+    environment:
+      <<: *common-env
+      PORT: 3013
+      SALES_DB_URL: postgresql://nexabiz:nexabiz@postgres:5432/nexabiz_sales
+    ports:
+      - "3013:3013"
+    networks:
+      - nexabiz-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  manufacturing-service:
+    build:
+      context: ./services/manufacturing-service
+      dockerfile: Dockerfile
+    container_name: nexabiz-manufacturing
+    environment:
+      <<: *common-env
+      PORT: 3014
+      INVENTORY_DB_URL: postgresql://nexabiz:nexabiz@postgres:5432/nexabiz_inventory
+    ports:
+      - "3014:3014"
+    networks:
+      - nexabiz-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  project-service:
+    build:
+      context: ./services/project-service
+      dockerfile: Dockerfile
+    container_name: nexabiz-projects
+    environment:
+      <<: *common-env
+      PORT: 3015
+      PROJECT_DB_URL: postgresql://nexabiz:nexabiz@postgres:5432/nexabiz_projects
+    ports:
+      - "3015:3015"
+    networks:
+      - nexabiz-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  workflow-service:
+    build:
+      context: ./services/workflow-service
+      dockerfile: Dockerfile
+    container_name: nexabiz-workflow
+    environment:
+      <<: *common-env
+      PORT: 3016
+      WORKFLOW_DB_URL: postgresql://nexabiz:nexabiz@postgres:5432/nexabiz_workflow
+    ports:
+      - "3016:3016"
+    networks:
+      - nexabiz-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  service-mgmt-service:
+    build:
+      context: ./services/service-mgmt-service
+      dockerfile: Dockerfile
+    container_name: nexabiz-service-mgmt
+    environment:
+      <<: *common-env
+      PORT: 3017
+      CRM_DB_URL: postgresql://nexabiz:nexabiz@postgres:5432/nexabiz_crm
+    ports:
+      - "3017:3017"
+    networks:
+      - nexabiz-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  notification-service:
+    build:
+      context: ./services/notification-service
+      dockerfile: Dockerfile
+    container_name: nexabiz-notifications
+    environment:
+      <<: *common-env
+      PORT: 3018
+      MONGODB_URL: mongodb://nexabiz:nexabiz@mongodb:27017/nexabiz_events
+    ports:
+      - "3018:3018"
+    networks:
+      - nexabiz-net
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  module-registry-service:
+    build:
+      context: ./services/module-registry-service
+      dockerfile: Dockerfile
+    container_name: nexabiz-module-registry
+    environment:
+      <<: *common-env
+      PORT: 3019
+      CONFIG_DB_URL: postgresql://nexabiz:nexabiz@postgres:5432/nexabiz_config
+    ports:
+      - "3019:3019"
+    networks:
+      - nexabiz-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  asset-service:
+    build:
+      context: ./services/asset-service
+      dockerfile: Dockerfile
+    container_name: nexabiz-assets
+    environment:
+      <<: *common-env
+      PORT: 3020
+      ACCOUNTING_DB_URL: postgresql://nexabiz:nexabiz@postgres:5432/nexabiz_accounting
+    ports:
+      - "3020:3020"
+    networks:
+      - nexabiz-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  gl-integration-service:
+    build:
+      context: ./services/gl-integration-service
+      dockerfile: Dockerfile
+    container_name: nexabiz-gl-integration
+    environment:
+      <<: *common-env
+      PORT: 3021
+      ACCOUNTING_DB_URL: postgresql://nexabiz:nexabiz@postgres:5432/nexabiz_accounting
+      MONGODB_URL: mongodb://nexabiz:nexabiz@mongodb:27017/nexabiz_events
+    ports:
+      - "3021:3021"
+    networks:
+      - nexabiz-net
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+
+  # ─── Java/Spring Boot Services ────────────────────────────────
+
+  gl-service:
+    build:
+      context: ./services/gl-service
+      dockerfile: Dockerfile
+    container_name: nexabiz-gl
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/nexabiz_accounting
+      SPRING_DATASOURCE_USERNAME: nexabiz
+      SPRING_DATASOURCE_PASSWORD: nexabiz
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "3003:8080"
+    networks:
+      - nexabiz-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  hr-service:
+    build:
+      context: ./services/hr-service
+      dockerfile: Dockerfile
+    container_name: nexabiz-hr
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/nexabiz_hr
+      SPRING_DATASOURCE_USERNAME: nexabiz
+      SPRING_DATASOURCE_PASSWORD: nexabiz
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    ports:
+      - "3022:8080"
+    networks:
+      - nexabiz-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  # ─── Python AI Service ────────────────────────────────────────
+
+  ai-service:
+    build:
+      context: ./services/ai-service
+      dockerfile: Dockerfile
+    container_name: nexabiz-ai
+    environment:
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_DB: nexabiz_analytics
+      ACCOUNTING_DB_URL: postgresql://nexabiz:nexabiz@postgres:5432/nexabiz_accounting
+    ports:
+      - "3023:8000"
+    networks:
+      - nexabiz-net
+    depends_on:
+      - clickhouse
+      - postgres
+
+  # ─── Frontend ─────────────────────────────────────────────────
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      target: development
+    container_name: nexabiz-web
+    environment:
+      VITE_API_URL: http://localhost:8000
+      VITE_WS_URL: ws://localhost:8000
+    volumes:
+      - ./apps/web:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    networks:
+      - nexabiz-net
+
+  # ─── Monitoring ───────────────────────────────────────────────
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: nexabiz-prometheus
+    volumes:
+      - ./infrastructure/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - nexabiz-net
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: nexabiz-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: nexabiz
+    volumes:
+      - ./infrastructure/monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    ports:
+      - "3100:3000"
+    networks:
+      - nexabiz-net
+    depends_on:
+      - prometheus

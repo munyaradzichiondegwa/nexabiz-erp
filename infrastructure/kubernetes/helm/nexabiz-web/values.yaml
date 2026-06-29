@@ -1,0 +1,86 @@
+# NexaBiz Helm values — override per environment
+
+global:
+  imageRegistry: ghcr.io/munyaradzichiondegwa
+  imageTag: latest
+  imagePullPolicy: IfNotPresent
+
+env: production
+replicaCount: 3
+
+# ── Web App ───────────────────────────────────────────────────────────────────
+web:
+  enabled: true
+  image:
+    repository: nexabiz-web
+  service:
+    type: ClusterIP
+    port: 80
+  ingress:
+    enabled: true
+    className: nginx
+    host: app.nexabiz.com
+    tlsSecret: nexabiz-tls
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits:   { cpu: 200m, memory: 128Mi }
+
+# ── Services ──────────────────────────────────────────────────────────────────
+services:
+  auth:
+    enabled: true
+    port: 3001
+    replicas: 2
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits:   { cpu: 500m, memory: 512Mi }
+  gl:
+    enabled: true
+    port: 8080
+    replicas: 2
+    javaOpts: "-Xms256m -Xmx512m"
+  hr:
+    enabled: true
+    port: 8080
+    replicas: 2
+  ai:
+    enabled: true
+    port: 8000
+    replicas: 1
+    resources:
+      requests: { cpu: 200m, memory: 512Mi }
+      limits:   { cpu: 2000m, memory: 2Gi }
+
+# ── Infrastructure ────────────────────────────────────────────────────────────
+postgresql:
+  enabled: false  # Use external managed PostgreSQL in production
+  external:
+    host: postgres.nexabiz.internal
+    port: 5432
+
+redis:
+  enabled: false  # Use external Redis Cluster in production
+  external:
+    host: redis.nexabiz.internal
+    port: 6379
+
+kafka:
+  enabled: false  # Use managed Kafka (Confluent Cloud) in production
+  external:
+    brokers: "kafka.nexabiz.internal:9092"
+
+# ── Autoscaling ───────────────────────────────────────────────────────────────
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+# ── Pod Disruption Budget ─────────────────────────────────────────────────────
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# ── Network Policy ────────────────────────────────────────────────────────────
+networkPolicy:
+  enabled: true

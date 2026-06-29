@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "paths": {
+      "@nexabiz/types": ["./packages/types/src/index.ts"],
+      "@nexabiz/kafka-client": ["./packages/kafka-client/src/index.ts"],
+      "@nexabiz/ui": ["./packages/ui/src/index.ts"]
+    }
+  }
+}

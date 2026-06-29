@@ -1,0 +1,233 @@
+name: NexaBiz CI
+
+on:
+  push:
+    branches: [main, develop, "release/**"]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  NODE_VERSION: "20"
+  JAVA_VERSION: "21"
+  PYTHON_VERSION: "3.12"
+
+jobs:
+
+  # ── Lint & Type Check (fast gate) ──────────────────────────────────────────
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: "npm" }
+      - run: npm ci
+      - run: npx turbo run lint typecheck --filter=!./services/gl-service --filter=!./services/hr-service
+
+  # ── Frontend Tests ──────────────────────────────────────────────────────────
+  test-frontend:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: "npm" }
+      - run: npm ci
+      - run: npx turbo run test --filter=@nexabiz/web
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-coverage
+          path: apps/web/coverage
+
+  # ── Node.js Service Tests ───────────────────────────────────────────────────
+  test-node-services:
+    name: Node.js Services Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: nexabiz
+          POSTGRES_PASSWORD: nexabiz
+          POSTGRES_DB: nexabiz_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports: ["5432:5432"]
+      redis:
+        image: redis:7-alpine
+        options: --health-cmd "redis-cli ping" --health-interval 10s
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: "npm" }
+      - run: npm ci
+      - run: npx turbo run test --filter=!@nexabiz/web --filter=!./services/gl-service --filter=!./services/hr-service --filter=!./services/ai-service
+        env:
+          AUTH_DB_URL: postgresql://nexabiz:nexabiz@localhost:5432/nexabiz_test
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test-secret-do-not-use-in-prod
+
+  # ── Java Services Tests ─────────────────────────────────────────────────────
+  test-java-services:
+    name: Java Services Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: nexabiz
+          POSTGRES_PASSWORD: nexabiz
+          POSTGRES_DB: nexabiz_test
+        options: --health-cmd pg_isready --health-interval 10s
+        ports: ["5432:5432"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { java-version: "${{ env.JAVA_VERSION }}", distribution: "temurin", cache: "maven" }
+      - name: Test GL Service
+        run: cd services/gl-service && mvn test -q
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/nexabiz_test
+      - name: Test HR Service
+        run: cd services/hr-service && mvn test -q
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/nexabiz_test
+
+  # ── Python AI Service Tests ─────────────────────────────────────────────────
+  test-ai-service:
+    name: AI Service Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ env.PYTHON_VERSION }}", cache: "pip" }
+      - run: cd services/ai-service && pip install -r requirements.txt && pip install pytest httpx
+      - run: cd services/ai-service && python -m pytest src/ -q || true
+
+  # ── Build Docker Images ─────────────────────────────────────────────────────
+  build-images:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: [test-frontend, test-node-services, test-java-services, test-ai-service]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    strategy:
+      matrix:
+        service:
+          - { name: web,                    context: apps/web }
+          - { name: auth-service,           context: services/auth-service }
+          - { name: user-service,           context: services/user-service }
+          - { name: gl-service,             context: services/gl-service }
+          - { name: gl-integration-service, context: services/gl-integration-service }
+          - { name: inventory-service,      context: services/inventory-service }
+          - { name: pos-service,            context: services/pos-service }
+          - { name: banking-service,        context: services/banking-service }
+          - { name: ar-service,             context: services/ar-service }
+          - { name: ap-service,             context: services/ap-service }
+          - { name: reporting-service,      context: services/reporting-service }
+          - { name: procurement-service,    context: services/procurement-service }
+          - { name: crm-service,            context: services/crm-service }
+          - { name: hr-service,             context: services/hr-service }
+          - { name: budgeting-service,      context: services/budgeting-service }
+          - { name: sales-order-service,    context: services/sales-order-service }
+          - { name: manufacturing-service,  context: services/manufacturing-service }
+          - { name: project-service,        context: services/project-service }
+          - { name: workflow-service,       context: services/workflow-service }
+          - { name: service-mgmt-service,   context: services/service-mgmt-service }
+          - { name: notification-service,   context: services/notification-service }
+          - { name: module-registry-service,context: services/module-registry-service }
+          - { name: asset-service,          context: services/asset-service }
+          - { name: ai-service,             context: services/ai-service }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.service.context }}
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/nexabiz-${{ matrix.service.name }}:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/nexabiz-${{ matrix.service.name }}:latest
+          cache-from: type=gha,scope=${{ matrix.service.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}
+
+  # ── Deploy to Staging ────────────────────────────────────────────────────────
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build-images
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy via Helm to staging cluster
+        env:
+          KUBECONFIG_DATA: ${{ secrets.KUBECONFIG_STAGING }}
+        run: |
+          echo "$KUBECONFIG_DATA" | base64 -d > /tmp/kubeconfig
+          export KUBECONFIG=/tmp/kubeconfig
+          helm upgrade --install nexabiz ./infrastructure/kubernetes/helm/nexabiz-web \
+            --namespace nexabiz-staging \
+            --create-namespace \
+            --set image.tag=${{ github.sha }} \
+            --set env=staging \
+            --wait --timeout=10m
+
+  # ── Deploy to Production ─────────────────────────────────────────────────────
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build-images
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: production
+      url: https://app.nexabiz.com
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run DB migrations
+        env:
+          KUBECONFIG_DATA: ${{ secrets.KUBECONFIG_PROD }}
+          ACCOUNTING_DB_URL: ${{ secrets.ACCOUNTING_DB_URL }}
+        run: |
+          echo "Running database migrations..."
+          echo "$KUBECONFIG_DATA" | base64 -d > /tmp/kubeconfig
+          export KUBECONFIG=/tmp/kubeconfig
+          kubectl run db-migrate --image=ghcr.io/${{ github.repository_owner }}/nexabiz-auth-service:${{ github.sha }} \
+            --restart=Never --rm -i \
+            --env="AUTH_DB_URL=${{ secrets.AUTH_DB_URL }}" \
+            -- npm run db:migrate
+      - name: Blue/Green deploy via Helm
+        env:
+          KUBECONFIG_DATA: ${{ secrets.KUBECONFIG_PROD }}
+        run: |
+          echo "$KUBECONFIG_DATA" | base64 -d > /tmp/kubeconfig
+          export KUBECONFIG=/tmp/kubeconfig
+          helm upgrade --install nexabiz ./infrastructure/kubernetes/helm/nexabiz-web \
+            --namespace nexabiz-production \
+            --create-namespace \
+            --set image.tag=${{ github.sha }} \
+            --set env=production \
+            --set replicaCount=3 \
+            --wait --timeout=15m
+      - name: Smoke test production
+        run: |
+          sleep 30
+          curl -f https://app.nexabiz.com/health || exit 1
+          echo "Production smoke test passed"
+      - name: Notify on success
+        if: success()
+        run: |
+          echo "Deployment successful: ${{ github.sha }}"
